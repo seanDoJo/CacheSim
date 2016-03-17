@@ -1,0 +1,8 @@
+Main Function (initialization and creation of cache)
+L1 read
+L1 write
+L1 instruction
+L2 read
+L2 write
+Cache Replacement
+Statistics output
