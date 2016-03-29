@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "defaults.h"
+#include "lru_stack.h"
 
 //function declarations
 void l1_cache_init(unsigned long rows, unsigned long columns);
@@ -10,9 +11,14 @@ void l2_cache_init(unsigned long rows, unsigned long columns);
 void cache_destroy(void);
 void init(int argc, char*args[]);
 
-unsigned long long int** l1_data_cache;
-unsigned long long int** l1_inst_cache;
-unsigned long long int** l2_cache;
+//unsigned long long int** l1_data_cache;
+//unsigned long long int** l1_inst_cache;
+//unsigned long long int** l2_cache;
+
+struct c_head* l1_data_cache;
+struct c_head* l1_inst_cache;
+struct c_head* l2_cache;
+
 unsigned int l2_cache_rows;
 unsigned int l1_cache_rows;
 unsigned long long int l1_index_mask;
@@ -129,36 +135,137 @@ void init(int argc, char* args[]){
 }
 
 void l1_cache_init(unsigned long rows, unsigned long columns){
-	int i;
-	l1_data_cache = (unsigned long long int **)malloc(sizeof(unsigned long long int*)*rows);
+	int i, v;
+	l1_data_cache = (struct c_head*)malloc(sizeof(struct c_head)*rows);
+	struct c_ent* ptr;
+	struct c_ent* new;
 	for(i=0;i<rows;i++){
-		l1_data_cache[i] = malloc(sizeof(unsigned long long int)*columns);
+		ptr = (struct c_ent*)malloc(sizeof(struct c_ent));
+		(*ptr).next = NULL;
+		(*ptr).prev = NULL;
+		(*ptr).lru_next = NULL;
+		(*ptr).lru_prev = NULL;
+
+		l1_data_cache[i].start = ptr;
+		l1_data_cache[i].bottom = ptr;
+
+		for(v=1; v < L1_assoc; v++){
+			new = (struct c_ent*)malloc(sizeof(struct c_ent));
+			(*new).next = NULL;
+			(*new).lru_next = NULL;
+
+			(*ptr).next = new;
+			(*ptr).lru_next = new;
+			(*new).prev = ptr;
+			(*new).lru_prev = ptr;	
+
+			ptr = new;
+		}
 	}
-	l1_inst_cache = (unsigned long long int **)malloc(sizeof(unsigned long long int*)*rows);
+
+	l1_inst_cache = (struct c_head*)malloc(sizeof(struct c_head)*rows);
 	for(i=0;i<rows;i++){
-		l1_inst_cache[i] = malloc(sizeof(unsigned long long int)*columns);
+		ptr = (struct c_ent*)malloc(sizeof(struct c_ent));
+		(*ptr).next = NULL;
+		(*ptr).prev = NULL;
+		(*ptr).lru_next = NULL;
+		(*ptr).lru_prev = NULL;
+
+		l1_inst_cache[i].start = ptr;
+		l1_inst_cache[i].bottom = ptr;
+
+		for(v=1; v < L1_assoc; v++){
+			new = (struct c_ent*)malloc(sizeof(struct c_ent));
+			(*new).next = NULL;
+			(*new).lru_next = NULL;
+
+			(*ptr).next = new;
+			(*ptr).lru_next = new;
+			(*new).prev = ptr;
+			(*new).lru_prev = ptr;	
+
+			ptr = new;
+		}
 	}
+	ptr = NULL;
+	new = NULL;
 }
 
 void l2_cache_init(unsigned long rows, unsigned long columns){
-	int i;
-	l2_cache = (unsigned long long int **)malloc(sizeof(unsigned long long int*)*rows);
+	int i, v;
+	l2_cache = (struct c_head*)malloc(sizeof(struct c_head)*rows);
+	struct c_ent* ptr;
+	struct c_ent* new;
 	for(i=0;i<rows;i++){
-		l2_cache[i] = malloc(sizeof(unsigned long long int)*columns);
+		ptr = (struct c_ent*)malloc(sizeof(struct c_ent));
+		(*ptr).next = NULL;
+		(*ptr).prev = NULL;
+		(*ptr).lru_next = NULL;
+		(*ptr).lru_prev = NULL;
+
+		l2_cache[i].start = ptr;
+		l2_cache[i].bottom = ptr;
+
+		for(v=1; v < L2_assoc; v++){
+			new = (struct c_ent*)malloc(sizeof(struct c_ent));
+			(*new).next = NULL;
+			(*new).lru_next = NULL;
+
+			(*ptr).next = new;
+			(*ptr).lru_next = new;
+			(*new).prev = ptr;
+			(*new).lru_prev = ptr;	
+
+			ptr = new;
+		}
 	}
 }
 
 void cache_destroy(void){
 	//function for freeing cache memory
 	int i;
+	struct c_ent* ptr;
+	struct c_ent* holder;
 	for(i=0;i<l1_cache_rows;i++){
-		free(l1_data_cache[i]);
-		free(l1_inst_cache[i]);
+		for(ptr=l1_data_cache[i].start;(*ptr).next != NULL; ptr = (*ptr).next);
+		while(ptr != NULL){
+			holder = (*ptr).prev;
+			(*ptr).next = NULL;
+			(*ptr).lru_next = NULL;
+			(*ptr).prev = NULL;
+			(*ptr).lru_prev = NULL;
+			free(ptr);
+			ptr = holder;
+		}
+		for(ptr=l1_inst_cache[i].start;(*ptr).next != NULL; ptr = (*ptr).next);
+		while(ptr != NULL){
+			holder = (*ptr).prev;
+			(*ptr).next = NULL;
+			(*ptr).lru_next = NULL;
+			(*ptr).prev = NULL;
+			(*ptr).lru_prev = NULL;
+			free(ptr);
+			ptr = holder;
+		}
+		ptr = NULL;
+		holder = NULL;
 	}
 	free(l1_data_cache);
 	free(l1_inst_cache);
+
 	for(i=0;i<l2_cache_rows;i++){
-		free(l2_cache[i]);
+		for(ptr=l2_cache[i].start;(*ptr).next != NULL; ptr = (*ptr).next);
+		while(ptr != NULL){
+			holder = (*ptr).prev;
+			(*ptr).next = NULL;
+			(*ptr).lru_next = NULL;
+			(*ptr).prev = NULL;
+			(*ptr).lru_prev = NULL;
+			free(ptr);
+			ptr = holder;
+		}
+		ptr = NULL;
+		holder = NULL;
 	}
 	free(l2_cache);
 }
