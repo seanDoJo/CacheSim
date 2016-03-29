@@ -6,6 +6,8 @@ struct c_ent {
 	struct c_ent* prev;
 	struct c_ent* lru_next;
 	struct c_ent* lru_prev;
+	unsigned long long int tag;
+	char dirty;
 };
 
 struct c_head {
