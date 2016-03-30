@@ -83,6 +83,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 		tag = (t_addr & l1_tag_mask) >> l1_tag_shift;
 
 		if(i==0 || (last_tag ^ tag)){
+			
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
 		
 			for(ptr = l1_inst_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
@@ -106,6 +107,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 					adjust_lru(ptr, &l1_victim);
 					ptr = l1_inst_cache[index].bottom;
 					adjust_lru(ptr, &l1_inst_cache[index]);
+					return;
 				}
 				else if(l1_victim_full && !((*ptr).valid)){
 					l1_victim_full = 0;
@@ -133,6 +135,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 					for(l1_ve=l1_victim.start;(*l1_ve).valid==1;l1_ve=(*l1_ve).next);
 					(*l1_ve).tag = (*l1_e).tag;
 					(*l1_ve).dirty = (*l1_e).dirty;
+					(*l1_ve).valid = 1;
 					adjust_lru(l1_ve, &l1_victim);
 				}
 				//place tag in evicted l1 entry
@@ -145,6 +148,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 				for(l1_e=l1_inst_cache[index].start;(*l1_e).valid==1;l1_e=(*l1_e).next);
 				(*l1_e).tag = tag;
 				(*l1_e).dirty = 0;
+				(*l1_e).valid = 1;
 				adjust_lru(l1_e, &l1_inst_cache[index]);
 			}
 			last_tag = tag;
