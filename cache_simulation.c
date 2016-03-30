@@ -157,7 +157,91 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 }
 
 void l1_read_data(unsigned long long int address, unsigned int bytesize){
+	struct c_ent* ptr;
+	int i;
+	unsigned long long int t_addr, last_tag, tag, index;
+	char l1_full = 1; //variables for making faster eviction decision later
+	char l1_victim_full = 1;
+	
+	for(i=0;i<bytesize;i++){
+		t_addr = address + i;
+		tag = (t_addr & l1_tag_mask) >> l1_tag_shift;
 
+		if(i==0 || (last_tag ^ tag)){
+			
+			index = (t_addr & l1_index_mask) >> l1_index_shift;
+		
+			for(ptr = l1_data_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
+				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
+					//adjust lru stack
+					adjust_lru(ptr, &l1_data_cache[index]);
+					return; //cache hit
+				}
+				else if(l1_full && !((*ptr).valid)){
+					l1_full = 0;
+				}
+			}
+
+			//didn't find the data, check victim cache
+			for(ptr = l1_victim.start;ptr!=NULL;ptr=(*ptr).next){
+				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
+					//found item in victim cache, need to swap with item in l1 cache
+					swap_entries(ptr, l1_data_cache[index].bottom);
+
+					//adjust lru stack
+					adjust_lru(ptr, &l1_victim);
+					ptr = l1_data_cache[index].bottom;
+					adjust_lru(ptr, &l1_data_cache[index]);
+					return;
+				}
+				else if(l1_victim_full && !((*ptr).valid)){
+					l1_victim_full = 0;
+				}
+			}
+	
+			//didn't find the data in l1, need to check l2 and write new data to l1 spot
+			//submit read request to l2
+
+			struct c_ent* l1_e;
+			struct c_ent* l1_ve;
+			
+			if(l1_full){
+				//need to evict an entry into victim
+				l1_e = l1_data_cache[index].bottom;
+				if(l1_victim_full){
+					//need to evict an entry into l2 if dirty
+					l1_ve = l1_victim.bottom;
+					if((*l1_ve).dirty){
+						//write to next level
+					}
+					(*l1_ve).tag = (*l1_e).tag;
+					(*l1_ve).dirty = (*l1_e).dirty;
+					adjust_lru(l1_ve, &l1_victim);
+				}
+				else{
+					//find a free spot for the evicted l1 entry in the victim
+					for(l1_ve=l1_victim.start;(*l1_ve).valid==1;l1_ve=(*l1_ve).next);
+					(*l1_ve).tag = (*l1_e).tag;
+					(*l1_ve).dirty = (*l1_e).dirty;
+					(*l1_ve).valid = 1;
+					adjust_lru(l1_ve, &l1_victim);
+				}
+				//place tag in evicted l1 entry
+				(*l1_e).tag = tag;
+				(*l1_e).dirty = 0;
+				adjust_lru(l1_e, &l1_data_cache[index]);
+			}
+			else{
+				//find a free spot for the tag in l1
+				for(l1_e=l1_data_cache[index].start;(*l1_e).valid==1;l1_e=(*l1_e).next);
+				(*l1_e).tag = tag;
+				(*l1_e).dirty = 0;
+				(*l1_e).valid = 1;
+				adjust_lru(l1_e, &l1_data_cache[index]);
+			}
+			last_tag = tag;
+		}
+	}
 }
 
 void l1_write_data(unsigned long long int address, unsigned int bytesize){
