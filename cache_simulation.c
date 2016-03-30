@@ -70,6 +70,8 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 	struct c_ent* ptr;
 	int i;
 	unsigned long long int t_addr, last_tag, tag, index;
+	char l1_full = 1; //variables for making faster eviction decision later
+	char l1_victim_full = 1;
 	
 	for(i=0;i<bytesize;i++){
 		t_addr = address + i;
@@ -83,6 +85,9 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 					//adjust lru stack
 					adjust_lru(ptr, &l1_inst_cache[index]);
 					return; //cache hit
+				}
+				else if(l1_full && !((*ptr).valid)){
+					l1_full = 0
 				}
 			}
 
@@ -102,9 +107,27 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 					ptr = l1_inst_cache[index].bottom;
 					adjust_lru(ptr, &l1_inst_cache[index]);
 				}
+				else if(l1_victim_full && !((*ptr).valid)){
+					l1_victim_full = 0;
+				}
 			}
 	
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
+			//submit read request to l2
+
+			if(l1_full){
+				//need to evict an entry into victim
+				if(l1_victim_full){
+					//need to evict an entry into l2 if dirty -- not necessary since we never write instructions
+				}
+				else{
+					//find a free spot for the evicted l1 entry in the victim
+				}
+				//place tag in evicted l1 entry
+			}
+			else{
+				//find a free spot for the tag in l1
+			}
 			last_tag = tag;
 		}
 	}
