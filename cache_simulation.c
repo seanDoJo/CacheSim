@@ -10,14 +10,16 @@ void l1_cache_init(unsigned long rows, unsigned long columns);
 void l2_cache_init(unsigned long rows, unsigned long columns);
 void cache_destroy(void);
 void init(int argc, char*args[]);
-
-//unsigned long long int** l1_data_cache;
-//unsigned long long int** l1_inst_cache;
-//unsigned long long int** l2_cache;
+void l1_read_instruction(unsigned long long int address, unsigned int bytesize);
+void l1_read_data(unsigned long long int address, unsigned int bytesize);
+void l1_write_data(unsigned long long int address, unsigned int bytesize);
+void adjust_lru(struct c_ent* ptr, struct c_head* head);
 
 struct c_head* l1_data_cache;
 struct c_head* l1_inst_cache;
 struct c_head* l2_cache;
+struct c_head l1_victim;
+struct c_head l2_victim;
 
 unsigned int l2_cache_rows;
 unsigned int l1_cache_rows;
@@ -37,19 +39,26 @@ int main(int argc, char* argv[]){
 		printf("Must pass in a filename and optional parameters!");
 		exit(1);
 	}
-	//fp = fopen(argv[1], "r");
+	fp = fopen(argv[1], "r");
 	init(argc, argv);
-	printf("%d\n",l1_index_shift);
-	printf("%d\n",l1_tag_shift);
-	cache_destroy();
-	exit(0);
 
 	char op;
 	unsigned long long int address;
 	unsigned int bytesize;
 	while(fscanf(fp, "%c %Lx %d\n", &op, &address, &bytesize) == 3){
-		unsigned long long int index = (address & l1_index_mask) >> l1_index_shift;
-		unsigned long long int tag = (address & l1_tag_mask) >> l1_tag_shift;
+		switch(op){
+			case 'I':
+				l1_read_instruction(address, bytesize);
+				break;
+			case 'R':
+				l1_read_data(address, bytesize);
+				break;
+			case 'W':
+				l1_write_data(address, bytesize);
+				break;
+			default:
+				printf("Something went wrong when reading the trace file!\n");
+		}
 	}
 	
 	fclose(fp);
@@ -57,10 +66,76 @@ int main(int argc, char* argv[]){
 	return 0;
 }
 
+void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
+	struct c_ent* ptr;
+	int i;
+	unsigned long long int t_addr, last_tag, tag, index;
+	
+	for(i=0;i<bytesize;i++){
+		t_addr = address + i;
+		tag = (t_addr & l1_tag_mask) >> l1_tag_shift;
+
+		if(i==0 || (last_tag ^ tag)){
+			index = (t_addr & l1_index_mask) >> l1_index_shift;
+		
+			for(ptr = l1_inst_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
+				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
+					//adjust lru stack
+					adjust_lru(ptr, &l1_inst_cache[index]);
+					return; //cache hit
+				}
+			}
+
+			//didn't find the data, check victim cache
+			for(ptr = l1_victim.start;ptr!=NULL;ptr=(*ptr).next){
+				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
+					//found item in victim cache, need to swap with item in l1 cache
+					unsigned long long int t_temp = (*ptr).tag;
+					char d_temp = (*ptr).dirty;
+					(*ptr).tag = l1_inst_cache[index].bottom->tag;
+					(*ptr).dirty = l1_inst_cache[index].bottom->dirty;
+					l1_inst_cache[index].bottom->tag = t_temp;
+					l1_inst_cache[index].bottom->dirty = d_temp;
+
+					//adjust lru stack
+					adjust_lru(ptr, &l1_victim);
+					ptr = l1_inst_cache[index].bottom;
+					adjust_lru(ptr, &l1_inst_cache[index]);
+				}
+			}
+	
+			//didn't find the data in l1, need to check l2 and write new data to l1 spot
+			last_tag = tag;
+		}
+	}
+}
+
+void l1_read_data(unsigned long long int address, unsigned int bytesize){
+
+}
+
+void l1_write_data(unsigned long long int address, unsigned int bytesize){
+
+}
+
+void adjust_lru(struct c_ent* ptr, struct c_head* head){
+	if((*ptr).lru_prev != NULL){					
+		if((*ptr).lru_next == NULL)(*head).bottom = (*ptr).lru_prev;
+		else (*ptr).lru_next -> lru_prev = (*ptr).lru_prev;
+		(*ptr).lru_prev -> lru_next = (*ptr).lru_next;
+		(*ptr).lru_next = (*head).lru_start;
+		(*ptr).lru_next -> lru_prev = ptr;
+		(*ptr).lru_prev = NULL;
+		(*head).lru_start = ptr;
+	}
+}
+
 void init(int argc, char* args[]){
 	int i, temp;
 	unsigned long rows;
 	unsigned long columns;
+	struct c_ent* ptr;
+	struct c_ent* new;
 	for(i=2;i<argc;i+=2){
 		unsigned long value = strtoul(args[i+1], NULL, 10);
 		if(value < 0){
@@ -95,6 +170,30 @@ void init(int argc, char* args[]){
 	l1_cache_rows = rows;
 	columns = L1_assoc;
 	l1_cache_init(rows, columns);
+	ptr = (struct c_ent*)malloc(sizeof(struct c_ent));
+	(*ptr).next = NULL;
+	(*ptr).lru_next = NULL;
+	(*ptr).prev = NULL;
+	(*ptr).lru_prev = NULL;
+	(*ptr).valid = 0;
+
+	l1_victim.start = ptr;
+	l1_victim.lru_start = ptr;
+	for(i=0;i<8;i++){
+		new = (struct c_ent*)malloc(sizeof(struct c_ent));
+		(*new).prev = ptr;
+		(*new).lru_prev = ptr;
+		(*new).next = NULL;
+		(*new).lru_next = NULL;
+		(*new).valid = 0;
+		
+		(*ptr).next = new;
+		(*ptr).lru_next = new;
+		
+		ptr = new;
+	}
+	for(ptr=l1_victim.start;(*ptr).lru_next!=NULL;ptr=(*ptr).lru_next);
+	l1_victim.bottom = ptr;
 	
 	while(rows > 1){
 		l1_index_mask <<= 1;
@@ -115,7 +214,31 @@ void init(int argc, char* args[]){
 	l2_cache_rows = rows;
 	columns = L2_assoc;
 	l2_cache_init(rows, columns); 
-	
+	ptr = (struct c_ent*)malloc(sizeof(struct c_ent));
+	(*ptr).next = NULL;
+	(*ptr).lru_next = NULL;
+	(*ptr).prev = NULL;
+	(*ptr).lru_prev = NULL;
+	(*ptr).valid = 0;
+
+	l2_victim.start = ptr;
+	l2_victim.lru_start = ptr;
+	for(i=0;i<8;i++){
+		new = (struct c_ent*)malloc(sizeof(struct c_ent));
+		(*new).prev = ptr;
+		(*new).lru_prev = ptr;
+		(*new).next = NULL;
+		(*new).lru_next = NULL;
+		(*new).valid = 0;
+		
+		(*ptr).next = new;
+		(*ptr).lru_next = new;
+		
+		ptr = new;
+	}
+	for(ptr=l2_victim.start;(*ptr).lru_next!=NULL;ptr=(*ptr).lru_next);
+	l2_victim.bottom = ptr;
+
 	temp = L2_block_size;
 	while(rows > 1){
 		l2_index_mask <<= 1;
@@ -145,14 +268,16 @@ void l1_cache_init(unsigned long rows, unsigned long columns){
 		(*ptr).prev = NULL;
 		(*ptr).lru_next = NULL;
 		(*ptr).lru_prev = NULL;
+		(*ptr).valid = 0;
 
 		l1_data_cache[i].start = ptr;
-		l1_data_cache[i].bottom = ptr;
+		l1_data_cache[i].lru_start = ptr;
 
 		for(v=1; v < L1_assoc; v++){
 			new = (struct c_ent*)malloc(sizeof(struct c_ent));
 			(*new).next = NULL;
 			(*new).lru_next = NULL;
+			(*new).valid = 0;
 
 			(*ptr).next = new;
 			(*ptr).lru_next = new;
@@ -161,6 +286,8 @@ void l1_cache_init(unsigned long rows, unsigned long columns){
 
 			ptr = new;
 		}
+		for(ptr=l1_data_cache[i].start;(*ptr).lru_next!=NULL;ptr=(*ptr).lru_next);
+		l1_data_cache[i].bottom = ptr;
 	}
 
 	l1_inst_cache = (struct c_head*)malloc(sizeof(struct c_head)*rows);
@@ -170,14 +297,16 @@ void l1_cache_init(unsigned long rows, unsigned long columns){
 		(*ptr).prev = NULL;
 		(*ptr).lru_next = NULL;
 		(*ptr).lru_prev = NULL;
+		(*ptr).valid = 0;
 
 		l1_inst_cache[i].start = ptr;
-		l1_inst_cache[i].bottom = ptr;
+		l1_inst_cache[i].lru_start = ptr;
 
 		for(v=1; v < L1_assoc; v++){
 			new = (struct c_ent*)malloc(sizeof(struct c_ent));
 			(*new).next = NULL;
 			(*new).lru_next = NULL;
+			(*new).valid = 0;
 
 			(*ptr).next = new;
 			(*ptr).lru_next = new;
@@ -186,6 +315,8 @@ void l1_cache_init(unsigned long rows, unsigned long columns){
 
 			ptr = new;
 		}
+		for(ptr=l1_inst_cache[i].start;(*ptr).lru_next!=NULL;ptr=(*ptr).lru_next);
+		l1_inst_cache[i].bottom = ptr;
 	}
 	ptr = NULL;
 	new = NULL;
@@ -202,14 +333,16 @@ void l2_cache_init(unsigned long rows, unsigned long columns){
 		(*ptr).prev = NULL;
 		(*ptr).lru_next = NULL;
 		(*ptr).lru_prev = NULL;
+		(*ptr).valid = 0;
 
 		l2_cache[i].start = ptr;
-		l2_cache[i].bottom = ptr;
+		l2_cache[i].lru_start = ptr;
 
 		for(v=1; v < L2_assoc; v++){
 			new = (struct c_ent*)malloc(sizeof(struct c_ent));
 			(*new).next = NULL;
 			(*new).lru_next = NULL;
+			(*new).valid = 0;
 
 			(*ptr).next = new;
 			(*ptr).lru_next = new;
@@ -218,6 +351,8 @@ void l2_cache_init(unsigned long rows, unsigned long columns){
 
 			ptr = new;
 		}
+		for(ptr=l2_cache[i].start;(*ptr).lru_next!=NULL;ptr=(*ptr).lru_next);
+		l2_cache[i].bottom = ptr;
 	}
 }
 
@@ -226,6 +361,28 @@ void cache_destroy(void){
 	int i;
 	struct c_ent* ptr;
 	struct c_ent* holder;
+
+	for(ptr=l1_victim.start;(*ptr).next != NULL; ptr=(*ptr).next);
+	while(ptr != NULL){
+			holder = (*ptr).prev;
+			(*ptr).next = NULL;
+			(*ptr).lru_next = NULL;
+			(*ptr).prev = NULL;
+			(*ptr).lru_prev = NULL;
+			free(ptr);
+			ptr = holder;
+	}
+	for(ptr=l2_victim.start;(*ptr).next != NULL; ptr=(*ptr).next);
+	while(ptr != NULL){
+			holder = (*ptr).prev;
+			(*ptr).next = NULL;
+			(*ptr).lru_next = NULL;
+			(*ptr).prev = NULL;
+			(*ptr).lru_prev = NULL;
+			free(ptr);
+			ptr = holder;
+	}
+	
 	for(i=0;i<l1_cache_rows;i++){
 		for(ptr=l1_data_cache[i].start;(*ptr).next != NULL; ptr = (*ptr).next);
 		while(ptr != NULL){

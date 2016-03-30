@@ -8,10 +8,12 @@ struct c_ent {
 	struct c_ent* lru_prev;
 	unsigned long long int tag;
 	char dirty;
+	char valid;
 };
 
 struct c_head {
 	struct c_ent* start;
+	struct c_ent* lru_start;
 	struct c_ent* bottom;
 };
 
