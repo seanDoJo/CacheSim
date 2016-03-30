@@ -32,25 +32,15 @@ unsigned long long int l1_tag_mask;
 unsigned long long int l2_tag_mask;
 int l1_tag_shift;
 int l2_tag_shift;
-FILE* fp;
 
 int main(int argc, char* argv[]){
 	//initialize cache with arguments
-	if(argc < 2){
-		printf("Must pass in a filename and optional parameters!\n");
-		exit(1);
-	}
-	fp = fopen(argv[1], "r");
-	if(fp == NULL){
-		printf("Something went wrong opening the input file\n");
-		exit(1);
-	}
 	init(argc, argv);
 
 	char op;
 	unsigned long long int address;
 	unsigned int bytesize;
-	while(fscanf(fp, "%c %Lx %d\n", &op, &address, &bytesize) == 3){
+	while(scanf("%c %Lx %d\n", &op, &address, &bytesize) == 3){
 		switch(op){
 			case 'I':
 				l1_read_instruction(address, bytesize);
@@ -66,7 +56,6 @@ int main(int argc, char* argv[]){
 		}
 	}
 	
-	fclose(fp);
 	cache_destroy();
 	return 0;
 }
@@ -295,7 +284,6 @@ void init(int argc, char* args[]){
 		else if(!strcmp(args[i], "l1_bus"))L2_bus_width = value;
 		else{
 			printf("Unrecognized parameter: %s\n", args[i]);
-			fclose(fp);
 			exit(1);
 		}
 	}
