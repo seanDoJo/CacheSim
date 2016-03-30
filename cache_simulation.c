@@ -14,6 +14,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize);
 void l1_read_data(unsigned long long int address, unsigned int bytesize);
 void l1_write_data(unsigned long long int address, unsigned int bytesize);
 void adjust_lru(struct c_ent* ptr, struct c_head* head);
+void swap_entries(struct c_ent* e1, struct c_ent* e2);
 
 struct c_head* l1_data_cache;
 struct c_head* l1_inst_cache;
@@ -36,10 +37,14 @@ FILE* fp;
 int main(int argc, char* argv[]){
 	//initialize cache with arguments
 	if(argc < 2){
-		printf("Must pass in a filename and optional parameters!");
+		printf("Must pass in a filename and optional parameters!\n");
 		exit(1);
 	}
 	fp = fopen(argv[1], "r");
+	if(fp == NULL){
+		printf("Something went wrong opening the input file\n");
+		exit(1);
+	}
 	init(argc, argv);
 
 	char op;
@@ -87,7 +92,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 					return; //cache hit
 				}
 				else if(l1_full && !((*ptr).valid)){
-					l1_full = 0
+					l1_full = 0;
 				}
 			}
 
@@ -95,12 +100,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 			for(ptr = l1_victim.start;ptr!=NULL;ptr=(*ptr).next){
 				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
 					//found item in victim cache, need to swap with item in l1 cache
-					unsigned long long int t_temp = (*ptr).tag;
-					char d_temp = (*ptr).dirty;
-					(*ptr).tag = l1_inst_cache[index].bottom->tag;
-					(*ptr).dirty = l1_inst_cache[index].bottom->dirty;
-					l1_inst_cache[index].bottom->tag = t_temp;
-					l1_inst_cache[index].bottom->dirty = d_temp;
+					swap_entries(ptr, l1_inst_cache[index].bottom);
 
 					//adjust lru stack
 					adjust_lru(ptr, &l1_victim);
@@ -115,18 +115,37 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
 			//submit read request to l2
 
+			struct c_ent* l1_e;
+			struct c_ent* l1_ve;
+			
 			if(l1_full){
 				//need to evict an entry into victim
+				l1_e = l1_inst_cache[index].bottom;
 				if(l1_victim_full){
 					//need to evict an entry into l2 if dirty -- not necessary since we never write instructions
+					l1_ve = l1_victim.bottom;
+					(*l1_ve).tag = (*l1_e).tag;
+					(*l1_ve).dirty = (*l1_e).dirty;
+					adjust_lru(l1_ve, &l1_victim);
 				}
 				else{
 					//find a free spot for the evicted l1 entry in the victim
+					for(l1_ve=l1_victim.start;(*l1_ve).valid==1;l1_ve=(*l1_ve).next);
+					(*l1_ve).tag = (*l1_e).tag;
+					(*l1_ve).dirty = (*l1_e).dirty;
+					adjust_lru(l1_ve, &l1_victim);
 				}
 				//place tag in evicted l1 entry
+				(*l1_e).tag = tag;
+				(*l1_e).dirty = 0;
+				adjust_lru(l1_e, &l1_inst_cache[index]);
 			}
 			else{
 				//find a free spot for the tag in l1
+				for(l1_e=l1_inst_cache[index].start;(*l1_e).valid==1;l1_e=(*l1_e).next);
+				(*l1_e).tag = tag;
+				(*l1_e).dirty = 0;
+				adjust_lru(l1_e, &l1_inst_cache[index]);
 			}
 			last_tag = tag;
 		}
@@ -153,6 +172,15 @@ void adjust_lru(struct c_ent* ptr, struct c_head* head){
 	}
 }
 
+void swap_entries(struct c_ent* e1, struct c_ent* e2){
+	unsigned long long int t_temp = (*e1).tag;
+	char d_temp = (*e1).dirty;
+	(*e1).tag = (*e2).tag;
+	(*e1).dirty = (*e2).dirty;
+	(*e2).tag = t_temp;
+	(*e2).dirty = d_temp;
+}
+
 void init(int argc, char* args[]){
 	int i, temp;
 	unsigned long rows;
@@ -177,7 +205,11 @@ void init(int argc, char* args[]){
 		else if(!strcmp(args[i], "l2_miss"))L2_miss_time = value;
 		else if(!strcmp(args[i], "l2_t"))L2_transfer_time = value;
 		else if(!strcmp(args[i], "l1_bus"))L2_bus_width = value;
-		else printf("Unrecognized parameter: %s\n", args[i]);
+		else{
+			printf("Unrecognized parameter: %s\n", args[i]);
+			fclose(fp);
+			exit(1);
+		}
 	}
 	l1_index_mask = 0;
 	l2_index_mask = 0;
