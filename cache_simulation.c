@@ -36,7 +36,6 @@ int l2_tag_shift;
 int main(int argc, char* argv[]){
 	//initialize cache with arguments
 	init(argc, argv);
-
 	char op;
 	unsigned long long int address;
 	unsigned int bytesize;
@@ -63,89 +62,101 @@ int main(int argc, char* argv[]){
 void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 	struct c_ent* ptr;
 	int i;
-	unsigned long long int t_addr, last_tag, tag, index;
+	unsigned long long int t_addr, tag, index;
+	unsigned int byte_grab, last_ref, cont;
 	char l1_full = 1; //variables for making faster eviction decision later
 	char l1_victim_full = 1;
-	
 	for(i=0;i<bytesize;i++){
-		t_addr = address + i;
+		cont = 0;
+		t_addr = address+i;
 		tag = (t_addr & l1_tag_mask) >> l1_tag_shift;
-
-		if(i==0 || (last_tag ^ tag)){
-			
+		byte_grab = (t_addr & 4) >> 2;
+		if(i == 0 || byte_grab != last_ref){
+			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
 		
-			for(ptr = l1_inst_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
+			for(ptr = l1_data_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
 				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
 					//adjust lru stack
-					adjust_lru(ptr, &l1_inst_cache[index]);
-					return; //cache hit
+					printf("I-hit\n");
+					adjust_lru(ptr, &l1_data_cache[index]);
+					cont = 1;
+					break; //cache hit
 				}
 				else if(l1_full && !((*ptr).valid)){
 					l1_full = 0;
 				}
 			}
+			if(cont)continue;
 
 			//didn't find the data, check victim cache
 			for(ptr = l1_victim.start;ptr!=NULL;ptr=(*ptr).next){
 				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
-					//found item in victim cache, need to swap with item in l1 cache
-					swap_entries(ptr, l1_inst_cache[index].bottom);
-
-					//adjust lru stack
+					//bring entry to top of stack	
 					adjust_lru(ptr, &l1_victim);
-					ptr = l1_inst_cache[index].bottom;
-					adjust_lru(ptr, &l1_inst_cache[index]);
-					return;
+
+					//overwrite with l1 evict data
+					swap_entries(ptr, l1_data_cache[index].bottom);
+
+					//printf("VC hit\n");
+					ptr = l1_data_cache[index].bottom;
+					adjust_lru(ptr, &l1_data_cache[index]);
+					cont = 1;
+					break;
 				}
 				else if(l1_victim_full && !((*ptr).valid)){
 					l1_victim_full = 0;
 				}
 			}
+			if(cont)continue;
 	
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
 			//submit read request to l2
-
+			//printf("I-miss\n");
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
-			
 			if(l1_full){
 				//need to evict an entry into victim
-				l1_e = l1_inst_cache[index].bottom;
+				l1_e = l1_data_cache[index].bottom;
 				if(l1_victim_full){
-					//need to evict an entry into l2 if dirty -- not necessary since we never write instructions
+					//bring to top of stack	
 					l1_ve = l1_victim.bottom;
+					adjust_lru(l1_ve, &l1_victim);
+
+					//overwrite data
 					(*l1_ve).tag = (*l1_e).tag;
 					(*l1_ve).dirty = (*l1_e).dirty;
-					adjust_lru(l1_ve, &l1_victim);
 				}
 				else{
 					//find a free spot for the evicted l1 entry in the victim
 					for(l1_ve=l1_victim.start;(*l1_ve).valid==1;l1_ve=(*l1_ve).next);
+					adjust_lru(l1_ve, &l1_victim);
+
 					(*l1_ve).tag = (*l1_e).tag;
 					(*l1_ve).dirty = (*l1_e).dirty;
 					(*l1_ve).valid = 1;
-					adjust_lru(l1_ve, &l1_victim);
 				}
 				//place tag in evicted l1 entry
+				adjust_lru(l1_e, &l1_data_cache[index]);
 				(*l1_e).tag = tag;
 				(*l1_e).dirty = 0;
-				adjust_lru(l1_e, &l1_inst_cache[index]);
 			}
 			else{
 				//find a free spot for the tag in l1
-				for(l1_e=l1_inst_cache[index].start;(*l1_e).valid==1;l1_e=(*l1_e).next);
+				for(l1_e=l1_data_cache[index].start;(*l1_e).valid==1;l1_e=(*l1_e).next);
+				adjust_lru(l1_e, &l1_data_cache[index]);
 				(*l1_e).tag = tag;
 				(*l1_e).dirty = 0;
 				(*l1_e).valid = 1;
-				adjust_lru(l1_e, &l1_inst_cache[index]);
 			}
-			last_tag = tag;
 		}
+		
 	}
+	
 }
 
 void l1_read_data(unsigned long long int address, unsigned int bytesize){
+	return;
 	struct c_ent* ptr;
 	int i;
 	unsigned long long int t_addr, last_tag, tag, index;
@@ -264,7 +275,7 @@ void init(int argc, char* args[]){
 	unsigned long columns;
 	struct c_ent* ptr;
 	struct c_ent* new;
-	for(i=2;i<argc;i+=2){
+	for(i=1;i<argc;i+=2){
 		unsigned long value = strtoul(args[i+1], NULL, 10);
 		if(value < 0){
 			printf("Couldn't convert number! Exiting.");
@@ -310,7 +321,7 @@ void init(int argc, char* args[]){
 
 	l1_victim.start = ptr;
 	l1_victim.lru_start = ptr;
-	for(i=0;i<8;i++){
+	for(i=0;i<7;i++){
 		new = (struct c_ent*)malloc(sizeof(struct c_ent));
 		(*new).prev = ptr;
 		(*new).lru_prev = ptr;
@@ -354,7 +365,7 @@ void init(int argc, char* args[]){
 
 	l2_victim.start = ptr;
 	l2_victim.lru_start = ptr;
-	for(i=0;i<8;i++){
+	for(i=0;i<7;i++){
 		new = (struct c_ent*)malloc(sizeof(struct c_ent));
 		(*new).prev = ptr;
 		(*new).lru_prev = ptr;
