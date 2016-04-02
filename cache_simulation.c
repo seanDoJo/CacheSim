@@ -76,13 +76,13 @@ int main(int argc, char* argv[]){
 	}
 	struct c_ent* ptr;
 	int i;
-	/*for(i=0;i<l1_cache_rows;i++){
+	for(i=0;i<l1_cache_rows;i++){
 		ptr = l1_inst_cache[i].start;
-		if((*ptr).valid)printf("I:%d | V:%d | D:%d | T:%Lx\n", i,(*ptr).valid, (*ptr).dirty, (*ptr).tag);
+		if((*ptr).valid)printf("I:%x | V:%d | D:%d | T:%Lx\n", i,(*ptr).valid, (*ptr).dirty, (*ptr).tag);
 	}
 	printf("**********\n");
 	for(ptr=l1_i_victim.start;ptr!=NULL;ptr=(*ptr).next)printf("%Lx ",(*ptr).tag);
-	printf("\n");*/
+	printf("\n");
 	printf("L1i Hits: %lu\n", l1_i_hits);
 	printf("L1i Misses: %lu\n", l1_i_misses);
 	printf("L1i VC Hits: %lu\n", l1_i_vc_hits);
