@@ -15,6 +15,9 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize);
 void l1_write_data(unsigned long long int address, unsigned int bytesize);
 void adjust_lru(struct c_ent* ptr, struct c_head* head);
 void swap_vc(struct c_ent* l1, struct c_ent* vc, unsigned long long int index);
+void swap_vc_2(struct c_ent* l2, struct c_ent* vc, unsigned long long int index);
+void l2_read(unsigned long long int address);
+void l2_write(unsigned long long int address);
 
 struct c_head* l1_data_cache;
 struct c_head* l1_inst_cache;
@@ -40,11 +43,23 @@ unsigned long l1_i_hits;
 unsigned long l1_i_vc_hits;
 unsigned long l1_i_misses;
 unsigned long l1_i_total;
+unsigned long l1_i_kickouts;
+unsigned long l1_i_dirty_kick;
+unsigned long l1_i_transfers;
 
 unsigned long l1_d_hits;
 unsigned long l1_d_vc_hits;
 unsigned long l1_d_misses;
 unsigned long l1_d_total;
+unsigned long l1_d_kickouts;
+unsigned long l1_d_dirty_kick;
+unsigned long l1_d_transfers;
+
+unsigned long l2_d_hits;
+unsigned long l2_d_vc_hits;
+unsigned long l2_d_misses;
+unsigned long l2_d_total;
+
 
 int main(int argc, char* argv[]){
 	//initialize cache with arguments
@@ -52,9 +67,20 @@ int main(int argc, char* argv[]){
 	l1_i_hits = 0;
 	l1_i_vc_hits = 0;
 	l1_i_misses = 0;
+	l1_i_kickouts = 0;
+	l1_i_dirty_kick = 0;
+	l1_i_transfers = 0;
+
 	l1_d_hits = 0;
 	l1_d_vc_hits = 0;
 	l1_d_misses = 0;
+	l1_d_kickouts = 0;
+	l1_d_dirty_kick = 0;
+	l1_d_transfers = 0;
+
+	l2_d_hits = 0;
+	l2_d_vc_hits = 0;
+	l2_d_misses = 0;
 
 	char op;
 	unsigned long long int address;
@@ -77,23 +103,46 @@ int main(int argc, char* argv[]){
 	struct c_ent* ptr;
 	int i;
 	for(i=0;i<l1_cache_rows;i++){
-		ptr = l1_inst_cache[i].start;
-		if((*ptr).valid)printf("I:%x | V:%d | D:%d | T:%Lx\n", i,(*ptr).valid, (*ptr).dirty, (*ptr).tag);
+		for(ptr = l1_inst_cache[i].lru_start; ptr != NULL; ptr=(*ptr).lru_next){
+			if((*ptr).valid)printf("I:%x | V:%d | D:%d | T:%Lx    ", i,(*ptr).valid, (*ptr).dirty, (*ptr).tag);
+		}
+		printf("\n");
 	}
 	printf("**********\n");
-	for(ptr=l1_i_victim.start;ptr!=NULL;ptr=(*ptr).next)printf("%Lx ",(*ptr).tag);
+	for(ptr=l1_i_victim.lru_start;ptr!=NULL;ptr=(*ptr).lru_next){
+		unsigned long long int addr = (*ptr).tag << l1_vc_shift;
+		printf("%Lx ",addr);
+	}
+	printf("\n**********\n");
+	for(ptr=l1_d_victim.lru_start;ptr!=NULL;ptr=(*ptr).lru_next){
+		unsigned long long int addr = (*ptr).tag << l1_vc_shift;
+		printf("%Lx ",addr);
+	}
 	printf("\n");
 	printf("L1i Hits: %lu\n", l1_i_hits);
 	printf("L1i Misses: %lu\n", l1_i_misses);
 	printf("L1i VC Hits: %lu\n", l1_i_vc_hits);
 	l1_i_total = l1_i_hits + l1_i_misses;
 	printf("L1i Total Requests: %lu\n", l1_i_total);
+	printf("L1i Kickouts: %lu\n", l1_i_kickouts);
+	printf("L1i Dirty Kickouts: %lu\n", l1_i_dirty_kick);
+	printf("L1i Transfers: %lu\n", l1_i_transfers);
 	printf("\n");
 	printf("L1d Hits: %lu\n", l1_d_hits);
 	printf("L1d Misses: %lu\n", l1_d_misses);
 	printf("L1d VC Hits: %lu\n", l1_d_vc_hits);
 	l1_d_total = l1_d_hits + l1_d_misses;
 	printf("L1d Total Requests: %lu\n", l1_d_total);
+	printf("L1d Kickouts: %lu\n", l1_d_kickouts);
+	printf("L1d Dirty Kickouts: %lu\n", l1_d_dirty_kick);
+	printf("L1d Transfers: %lu\n", l1_d_transfers);
+	printf("\n");
+	printf("L2 Hits: %lu\n", l2_d_hits);
+	printf("L2 Misses: %lu\n", l2_d_misses);
+	printf("L2 VC Hits: %lu\n", l2_d_vc_hits);
+	l2_d_total = l2_d_hits + l2_d_misses;
+	printf("L2 Total Requests: %lu\n", l2_d_total);
+
 
 	
 	cache_destroy();
@@ -117,15 +166,6 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
 			vc_tag = t_addr >> l1_vc_shift;
-			/*printf("%Lx\n\t",tag);
-			int x;
-			unsigned long long int t = address;
-			for(x=0;x<64;x++){
-				int a = t & 1;
-				printf("%d ", a);
-				t >>= 1;
-			}
-			printf("\n");*/
 		
 			for(ptr = l1_inst_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
 				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
@@ -148,6 +188,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 
 					//overwrite with l1 evict data
 					swap_vc(l1_inst_cache[index].bottom, ptr, index);
+					l1_i_transfers++;
 					
 					l1_i_vc_hits++;
 					l1_i_misses++;
@@ -164,6 +205,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 	
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
 			//submit read request to l2
+			l2_read(t_addr);
 			l1_i_misses++;
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
@@ -177,10 +219,12 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 					//bring to top of stack	
 					l1_ve = l1_i_victim.bottom;
 					adjust_lru(l1_ve, &l1_i_victim);
+					if((*l1_ve).dirty)l1_i_dirty_kick++;
 
 					//overwrite data
 					(*l1_ve).tag = new_ve_tag;
 					(*l1_ve).dirty = (*l1_e).dirty;
+					l1_i_kickouts++;
 				}
 				else{
 					//find a free spot for the evicted l1 entry in the victim
@@ -225,15 +269,6 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 		if(i == 0 || byte_grab != last_ref){
 			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
-			/*printf("%Lx\n\t",tag);
-			int x;
-			unsigned long long int t = address;
-			for(x=0;x<64;x++){
-				int a = t & 1;
-				printf("%d ", a);
-				t >>= 1;
-			}
-			printf("\n");*/
 		
 			for(ptr = l1_data_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
 				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
@@ -273,6 +308,7 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 	
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
 			//submit read request to l2
+			l2_read(t_addr);
 			l1_d_misses++;
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
@@ -286,6 +322,12 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 					//bring to top of stack	
 					l1_ve = l1_d_victim.bottom;
 					adjust_lru(l1_ve, &l1_d_victim);
+					l1_d_kickouts++;
+					if((*l1_ve).dirty){
+						unsigned long long int evict = (*l1_ve).tag << l1_vc_shift;
+						l2_write(evict);
+						l1_d_dirty_kick++;
+					}
 
 					//overwrite data
 					(*l1_ve).tag = new_ve_tag;
@@ -361,6 +403,7 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 					
 					l1_d_vc_hits++;
 					l1_d_misses++;
+					l1_d_transfers++;
 					ptr = l1_data_cache[index].bottom;
 					adjust_lru(ptr, &l1_data_cache[index]);
 					(*ptr).dirty = 1;
@@ -376,6 +419,7 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
 			//submit read request to l2
 			l1_d_misses++;
+			l2_read(t_addr);
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
 			unsigned long long int new_ve_tag;
@@ -388,6 +432,12 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 					//bring to top of stack	
 					l1_ve = l1_d_victim.bottom;
 					adjust_lru(l1_ve, &l1_d_victim);
+					l1_d_kickouts++;
+					if((*l1_ve).dirty){
+						unsigned long long int evict = (*l1_ve).tag << l1_vc_shift;
+						l2_write(evict);
+						l1_d_dirty_kick++;
+					}
 
 					//overwrite data
 					(*l1_ve).tag = new_ve_tag;
@@ -420,6 +470,186 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 	}
 }
 
+void l2_read(unsigned long long int address){
+	struct c_ent* ptr;
+	unsigned long long int t_addr, tag, index, vc_tag;
+	char l2_full = 1; //variables for making faster eviction decision later
+	char l2_victim_full = 1;
+	t_addr = address;
+	tag = (t_addr & l2_tag_mask) >> l2_tag_shift;
+	index = (t_addr & l2_index_mask) >> l2_index_shift;
+
+	for(ptr = l2_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
+		if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
+			//adjust lru stack
+			l2_d_hits ++;
+			adjust_lru(ptr, &l2_cache[index]);
+			return; //cache hit
+		}
+		else if(l2_full && !((*ptr).valid)){
+			l2_full = 0;
+		}
+	}
+	vc_tag = t_addr >> l2_vc_shift;
+	//didn't find the data, check victim cache
+	for(ptr = l2_victim.start;ptr!=NULL;ptr=(*ptr).next){
+		if((*ptr).valid == 1 && ((*ptr).tag ^ vc_tag) == 0){
+			//bring entry to top of stack	
+			adjust_lru(ptr, &l2_victim);
+
+			//overwrite with l2 evict data
+			swap_vc_2(l2_cache[index].bottom, ptr, index);
+			
+			l2_d_vc_hits++;
+			l2_d_misses++;
+			ptr = l2_cache[index].bottom;
+			adjust_lru(ptr, &l2_cache[index]);
+			return;
+		}
+		else if(l2_victim_full && !((*ptr).valid)){
+			l2_victim_full = 0;
+		}
+	}
+
+	//didn't find the data in l2, need to check mem and write new data to l2 spot
+	//submit read request to l2
+	l2_d_misses++;
+	struct c_ent* l2_e;
+	struct c_ent* l2_ve;
+	unsigned long long int new_ve_tag;
+	if(l2_full){
+		//need to evict an entry into victim
+		l2_e = l2_cache[index].bottom;
+		new_ve_tag = (*l2_e).tag;
+		new_ve_tag = ((new_ve_tag << l2_tag_shift) >> l2_vc_shift)+index;
+		if(l2_victim_full){
+			//bring to top of stack	
+			l2_ve = l2_victim.bottom;
+			adjust_lru(l2_ve, &l2_victim);
+			if((*l2_ve).dirty){
+				//unsigned long long int evict = (*l2_ve).tag << l2_vc_shift;
+				//write to memory
+			}
+
+			//overwrite data
+			(*l2_ve).tag = new_ve_tag;
+			(*l2_ve).dirty = (*l2_e).dirty;
+		}
+		else{
+			//find a free spot for the evicted l2 entry in the victim
+			for(l2_ve=l2_victim.start;(*l2_ve).valid==1;l2_ve=(*l2_ve).next);
+			adjust_lru(l2_ve, &l2_victim);
+
+			(*l2_ve).tag = new_ve_tag;
+			(*l2_ve).dirty = (*l2_e).dirty;
+			(*l2_ve).valid = 1;
+		}
+		//place tag in evicted l2 entry
+		adjust_lru(l2_e, &l2_cache[index]);
+		(*l2_e).tag = tag;
+		(*l2_e).dirty = 0;
+	}
+	else{
+		//find a free spot for the tag in l2
+		for(l2_e=l2_cache[index].start;(*l2_e).valid==1;l2_e=(*l2_e).next);
+		adjust_lru(l2_e, &l2_cache[index]);
+		(*l2_e).tag = tag;
+		(*l2_e).dirty = 0;
+		(*l2_e).valid = 1;
+	}
+
+}
+void l2_write(unsigned long long int address){
+	struct c_ent* ptr;
+	unsigned long long int t_addr, tag, index, vc_tag;
+	char l2_full = 1; //variables for making faster eviction decision later
+	char l2_victim_full = 1;
+	t_addr = address;
+	tag = (t_addr & l2_tag_mask) >> l2_tag_shift;
+	index = (t_addr & l2_index_mask) >> l2_index_shift;
+
+	for(ptr = l2_cache[index].start;ptr!=NULL;ptr=(*ptr).next){
+		if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
+			//adjust lru stack
+			l2_d_hits ++;
+			adjust_lru(ptr, &l2_cache[index]);
+			(*ptr).dirty = 1;
+			return; //cache hit
+		}
+		else if(l2_full && !((*ptr).valid)){
+			l2_full = 0;
+		}
+	}
+	vc_tag = t_addr >> l2_vc_shift;
+	//didn't find the data, check victim cache
+	for(ptr = l2_victim.start;ptr!=NULL;ptr=(*ptr).next){
+		if((*ptr).valid == 1 && ((*ptr).tag ^ vc_tag) == 0){
+			//bring entry to top of stack	
+			adjust_lru(ptr, &l2_victim);
+
+			//overwrite with l2 evict data
+			swap_vc_2(l2_cache[index].bottom, ptr, index);
+			
+			l2_d_vc_hits++;
+			l2_d_misses++;
+			ptr = l2_cache[index].bottom;
+			adjust_lru(ptr, &l2_cache[index]);
+			(*ptr).dirty = 1;
+			return;
+		}
+		else if(l2_victim_full && !((*ptr).valid)){
+			l2_victim_full = 0;
+		}
+	}
+
+	//didn't find the data in l2, need to pull from memory and write new data to l2 spot
+	//submit read request to l2
+	l2_d_misses++;
+	struct c_ent* l2_e;
+	struct c_ent* l2_ve;
+	unsigned long long int new_ve_tag;
+	if(l2_full){
+		//need to evict an entry into victim
+		l2_e = l2_cache[index].bottom;
+		new_ve_tag = (*l2_e).tag;
+		new_ve_tag = ((new_ve_tag << l2_tag_shift)>>l2_vc_shift)+index;
+		if(l2_victim_full){
+			//bring to top of stack	
+			l2_ve = l2_victim.bottom;
+			adjust_lru(l2_ve, &l2_victim);
+			if((*l2_ve).dirty){
+				//unsigned long long int evict = (*l2_ve).tag << l2_vc_shift;
+				//write to memory
+			}
+
+			//overwrite data
+			(*l2_ve).tag = new_ve_tag;
+			(*l2_ve).dirty = (*l2_e).dirty;
+		}
+		else{
+			//find a free spot for the evicted l2 entry in the victim
+			for(l2_ve=l2_victim.start;(*l2_ve).valid==1;l2_ve=(*l2_ve).next);
+			adjust_lru(l2_ve, &l2_victim);
+
+			(*l2_ve).tag = new_ve_tag;
+			(*l2_ve).dirty = (*l2_e).dirty;
+			(*l2_ve).valid = 1;
+		}
+		//place tag in evicted l2 entry
+		adjust_lru(l2_e, &l2_cache[index]);
+		(*l2_e).tag = tag;
+		(*l2_e).dirty = 1;
+	}
+	else{
+		//find a free spot for the tag in l2
+		for(l2_e=l2_cache[index].start;(*l2_e).valid==1;l2_e=(*l2_e).next);
+		adjust_lru(l2_e, &l2_cache[index]);
+		(*l2_e).tag = tag;
+		(*l2_e).dirty = 1;
+		(*l2_e).valid = 1;
+	}
+}
+
 void adjust_lru(struct c_ent* ptr, struct c_head* head){
 	if((*ptr).lru_prev != NULL){					
 		if((*ptr).lru_next == NULL)(*head).bottom = (*ptr).lru_prev;
@@ -443,6 +673,18 @@ void swap_vc(struct c_ent* l1, struct c_ent* vc, unsigned long long int index){
 	(*l1).tag = new_l1;
 	(*l1).dirty = vc_d;
 }
+void swap_vc_2(struct c_ent* l2, struct c_ent* vc, unsigned long long int index){
+	unsigned long long int vc_tag = (*vc).tag;
+	unsigned long long int l2_tag = (*l2).tag;
+	unsigned long long int new_l2 = ((vc_tag << l2_vc_shift) & l2_tag_mask) >> l2_tag_shift;
+	unsigned long long int new_vc = ((l2_tag << l2_tag_shift) >> l2_vc_shift) + index;
+	char vc_d = (*vc).dirty;
+	(*vc).tag = new_vc;
+	(*vc).dirty = (*l2).dirty;
+	(*l2).tag = new_l2;
+	(*l2).dirty = vc_d;
+}
+
 
 void init(int argc, char* args[]){
 	int i, temp;
