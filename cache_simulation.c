@@ -59,6 +59,8 @@ unsigned long l2_d_hits;
 unsigned long l2_d_vc_hits;
 unsigned long l2_d_misses;
 unsigned long l2_d_total;
+unsigned long l2_kickouts;
+unsigned long l2_dirty_kick;
 
 
 int main(int argc, char* argv[]){
@@ -81,6 +83,8 @@ int main(int argc, char* argv[]){
 	l2_d_hits = 0;
 	l2_d_vc_hits = 0;
 	l2_d_misses = 0;
+	l2_kickouts = 0;
+	l2_dirty_kick = 0;
 
 	char op;
 	unsigned long long int address;
@@ -102,20 +106,15 @@ int main(int argc, char* argv[]){
 	}
 	struct c_ent* ptr;
 	int i;
-	for(i=0;i<l1_cache_rows;i++){
-		for(ptr = l1_inst_cache[i].lru_start; ptr != NULL; ptr=(*ptr).lru_next){
+	for(i=0;i<l2_cache_rows;i++){
+		for(ptr = l2_cache[i].lru_start; ptr != NULL; ptr=(*ptr).lru_next){
 			if((*ptr).valid)printf("I:%x | V:%d | D:%d | T:%Lx    ", i,(*ptr).valid, (*ptr).dirty, (*ptr).tag);
 		}
 		printf("\n");
 	}
-	printf("**********\n");
-	for(ptr=l1_i_victim.lru_start;ptr!=NULL;ptr=(*ptr).lru_next){
-		unsigned long long int addr = (*ptr).tag << l1_vc_shift;
-		printf("%Lx ",addr);
-	}
 	printf("\n**********\n");
-	for(ptr=l1_d_victim.lru_start;ptr!=NULL;ptr=(*ptr).lru_next){
-		unsigned long long int addr = (*ptr).tag << l1_vc_shift;
+	for(ptr=l2_victim.lru_start;ptr!=NULL;ptr=(*ptr).lru_next){
+		unsigned long long int addr = (*ptr).tag << l2_vc_shift;
 		printf("%Lx ",addr);
 	}
 	printf("\n");
@@ -126,7 +125,6 @@ int main(int argc, char* argv[]){
 	printf("L1i Total Requests: %lu\n", l1_i_total);
 	printf("L1i Kickouts: %lu\n", l1_i_kickouts);
 	printf("L1i Dirty Kickouts: %lu\n", l1_i_dirty_kick);
-	printf("L1i Transfers: %lu\n", l1_i_transfers);
 	printf("\n");
 	printf("L1d Hits: %lu\n", l1_d_hits);
 	printf("L1d Misses: %lu\n", l1_d_misses);
@@ -135,14 +133,14 @@ int main(int argc, char* argv[]){
 	printf("L1d Total Requests: %lu\n", l1_d_total);
 	printf("L1d Kickouts: %lu\n", l1_d_kickouts);
 	printf("L1d Dirty Kickouts: %lu\n", l1_d_dirty_kick);
-	printf("L1d Transfers: %lu\n", l1_d_transfers);
 	printf("\n");
 	printf("L2 Hits: %lu\n", l2_d_hits);
 	printf("L2 Misses: %lu\n", l2_d_misses);
 	printf("L2 VC Hits: %lu\n", l2_d_vc_hits);
 	l2_d_total = l2_d_hits + l2_d_misses;
 	printf("L2 Total Requests: %lu\n", l2_d_total);
-
+	printf("L2 Kickouts: %lu\n", l2_kickouts);
+	printf("L2 Dirty Kickouts: %lu\n", l2_dirty_kick);
 
 	
 	cache_destroy();
@@ -308,7 +306,7 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 	
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
 			//submit read request to l2
-			l2_read(t_addr);
+			//l2_read(t_addr);
 			l1_d_misses++;
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
@@ -355,6 +353,7 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 				(*l1_e).dirty = 0;
 				(*l1_e).valid = 1;
 			}
+			l2_read(t_addr);
 		}
 		
 	}
@@ -419,7 +418,7 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
 			//submit read request to l2
 			l1_d_misses++;
-			l2_read(t_addr);
+			//l2_read(t_addr);
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
 			unsigned long long int new_ve_tag;
@@ -465,6 +464,9 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 				(*l1_e).dirty = 1;
 				(*l1_e).valid = 1;
 			}
+			
+			l2_read(t_addr);
+
 		}
 		
 	}
@@ -526,9 +528,11 @@ void l2_read(unsigned long long int address){
 			//bring to top of stack	
 			l2_ve = l2_victim.bottom;
 			adjust_lru(l2_ve, &l2_victim);
+			l2_kickouts++;
 			if((*l2_ve).dirty){
 				//unsigned long long int evict = (*l2_ve).tag << l2_vc_shift;
 				//write to memory
+				l2_dirty_kick++;
 			}
 
 			//overwrite data
@@ -617,9 +621,11 @@ void l2_write(unsigned long long int address){
 			//bring to top of stack	
 			l2_ve = l2_victim.bottom;
 			adjust_lru(l2_ve, &l2_victim);
+			l2_kickouts++;
 			if((*l2_ve).dirty){
 				//unsigned long long int evict = (*l2_ve).tag << l2_vc_shift;
 				//write to memory
+				l2_dirty_kick++;
 			}
 
 			//overwrite data
