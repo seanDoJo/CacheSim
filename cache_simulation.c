@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include "defaults.h"
 #include "lru_stack.h"
+#include <time.h>
 
 //function declarations
 void l1_cache_init(unsigned long rows, unsigned long columns);
@@ -16,8 +17,8 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize);
 void adjust_lru(struct c_ent* ptr, struct c_head* head);
 void swap_vc(struct c_ent* l1, struct c_ent* vc, unsigned long long int index);
 void swap_vc_2(struct c_ent* l2, struct c_ent* vc, unsigned long long int index);
-void l2_read(unsigned long long int address);
-void l2_write(unsigned long long int address);
+void l2_read(unsigned long long int address, unsigned long long int* hitter);
+void l2_write(unsigned long long int address, unsigned long long int* hitter);
 
 struct c_head* l1_data_cache;
 struct c_head* l1_inst_cache;
@@ -39,30 +40,45 @@ int l2_tag_shift;
 int l1_vc_shift;
 int l2_vc_shift;
 
-unsigned long l1_i_hits;
-unsigned long l1_i_vc_hits;
-unsigned long l1_i_misses;
-unsigned long l1_i_total;
-unsigned long l1_i_kickouts;
-unsigned long l1_i_dirty_kick;
-unsigned long l1_i_transfers;
+unsigned long long int l1_i_hits;
+unsigned long long int l1_i_vc_hits;
+unsigned long long int l1_i_misses;
+unsigned long long int l1_i_total;
+unsigned long long int l1_i_kickouts;
+unsigned long long int l1_i_dirty_kick;
+unsigned long long int l1_i_transfers;
 
-unsigned long l1_d_hits;
-unsigned long l1_d_vc_hits;
-unsigned long l1_d_misses;
-unsigned long l1_d_total;
-unsigned long l1_d_kickouts;
-unsigned long l1_d_dirty_kick;
-unsigned long l1_d_transfers;
+unsigned long long int l1_d_hits;
+unsigned long long int l1_d_vc_hits;
+unsigned long long int l1_d_misses;
+unsigned long long int l1_d_total;
+unsigned long long int l1_d_kickouts;
+unsigned long long int l1_d_dirty_kick;
+unsigned long long int l1_d_transfers;
 
-unsigned long l2_d_hits;
-unsigned long l2_d_vc_hits;
-unsigned long l2_d_misses;
-unsigned long l2_d_total;
-unsigned long l2_kickouts;
-unsigned long l2_dirty_kick;
+unsigned long long int l2_d_hits;
+unsigned long long int l2_d_vc_hits;
+unsigned long long int l2_d_misses;
+unsigned long long int l2_d_total;
+unsigned long long int l2_kickouts;
+unsigned long long int l2_dirty_kick;
+unsigned long long int l2_transfers;
 
+unsigned long long int instRefs;
+unsigned long long int reads;
+unsigned long long int writes;
+unsigned long long int read_cycles;
+unsigned long long int write_cycles;
+unsigned long long int inst_cycles;
+unsigned long long int total_cycles;
+unsigned long long int ideal_exec;
+unsigned long long int m_exec;
 
+unsigned long l1_l2_tt;
+unsigned long l2_m_tt;
+
+time_t timer;
+struct tm* tm_info;
 int main(int argc, char* argv[]){
 	//initialize cache with arguments
 	init(argc, argv);
@@ -85,26 +101,57 @@ int main(int argc, char* argv[]){
 	l2_d_misses = 0;
 	l2_kickouts = 0;
 	l2_dirty_kick = 0;
+	l2_transfers = 0;
+
+	instRefs = 0;
+	reads = 0;
+	writes = 0;
+	read_cycles = 0;
+	write_cycles = 0;
+	inst_cycles = 0;
+	ideal_exec = 0;
+	m_exec = 0;
+	l1_l2_tt = L2_transfer_time*(L1_block_size / L2_bus_width);
+	l2_m_tt = mem_sendaddr + mem_ready + (mem_chunktime*(L2_block_size/mem_chunksize));
 
 	char op;
 	unsigned long long int address;
 	unsigned int bytesize;
+	char buf1[26];
+	time(&timer);
+	tm_info = localtime(&timer);
+	strftime(buf1, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+	puts(buf1);
 	while(scanf("%c %Lx %d\n", &op, &address, &bytesize) == 3){
 		switch(op){
 			case 'I':
 				l1_read_instruction(address, bytesize);
+				inst_cycles++;//time to execute an instruction
+				instRefs++;
+				ideal_exec += 2;
+				m_exec += 1;
 				break;
 			case 'R':
 				l1_read_data(address, bytesize);
+				reads++;
+				ideal_exec++;
 				break;
 			case 'W':
 				l1_write_data(address, bytesize);
+				writes++;
+				ideal_exec++;
 				break;
 			default:
 				printf("Something went wrong when reading the trace file!\n");
 		}
 	}
-	struct c_ent* ptr;
+	char buf2[26];
+	time(&timer);
+	tm_info = localtime(&timer);
+	strftime(buf2, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+	puts(buf2);
+
+	/*struct c_ent* ptr;
 	int i;
 	for(i=0;i<l2_cache_rows;i++){
 		for(ptr = l2_cache[i].lru_start; ptr != NULL; ptr=(*ptr).lru_next){
@@ -117,30 +164,62 @@ int main(int argc, char* argv[]){
 		unsigned long long int addr = (*ptr).tag << l2_vc_shift;
 		printf("%Lx ",addr);
 	}
+	printf("\n");*/
+	unsigned long long int total = reads+writes+instRefs;
+	printf("Reads: %llu\t[ %.1f%% ]\n", reads, (((double)reads)/((double)total))*100);
+	printf("Writes: %llu\t[ %.1f%% ]\n", writes, (((double)writes)/((double)total))*100);
+	printf("Inst. : %llu\t[ %.1f%% ]\n", instRefs, (((double)instRefs)/((double)total))*100);
+	printf("Total: %llu\n", total);
+	printf("\n");	
+	total_cycles = read_cycles + write_cycles + inst_cycles;
+	printf("Read Cycles: %llu\t[ %.1f%% ]\n", read_cycles, (((double)read_cycles)/((double)total_cycles))*100);
+	printf("Write Cycles: %llu\t[ %.1f%% ]\n", write_cycles, (((double)write_cycles)/((double)total_cycles))*100);
+	printf("Inst. Cycles: %llu\t[ %.1f%% ]\n", inst_cycles, (((double)inst_cycles)/((double)total_cycles))*100);
+	printf("Total Cycles: %llu\n", total_cycles);
 	printf("\n");
-	printf("L1i Hits: %lu\n", l1_i_hits);
-	printf("L1i Misses: %lu\n", l1_i_misses);
-	printf("L1i VC Hits: %lu\n", l1_i_vc_hits);
+	double raw_cpi = ((double)total_cycles) / ((double)instRefs);
+	double ideal_cpi = ((double)ideal_exec) / ((double)instRefs);
+	double align_cpi = ((double)m_exec) / ((double)instRefs);
+	printf("CPI: %.1f\n", raw_cpi);
+	printf("Ideal Exec: %llu\n", ideal_exec);
+	printf("Ideal CPI: %.1f\n", ideal_cpi);
+	printf("Misaligned Exec: %llu\n", m_exec);
+	printf("Misaligned CPI: %.1f\n", align_cpi);
+	printf("\n");
+	printf("L1i Hits: %llu\n", l1_i_hits);
+	printf("L1i Misses: %llu\n", l1_i_misses);
 	l1_i_total = l1_i_hits + l1_i_misses;
-	printf("L1i Total Requests: %lu\n", l1_i_total);
-	printf("L1i Kickouts: %lu\n", l1_i_kickouts);
-	printf("L1i Dirty Kickouts: %lu\n", l1_i_dirty_kick);
+	printf("L1i Total Requests: %llu\n", l1_i_total);
+	printf("L1i Kickouts: %llu\n", l1_i_kickouts);
+	printf("L1i Dirty Kickouts: %llu\n", l1_i_dirty_kick);
+	printf("L1i Transfers: %llu\n", l1_i_transfers);
+	printf("L1i VC Hits: %llu\n", l1_i_vc_hits);
 	printf("\n");
-	printf("L1d Hits: %lu\n", l1_d_hits);
-	printf("L1d Misses: %lu\n", l1_d_misses);
-	printf("L1d VC Hits: %lu\n", l1_d_vc_hits);
+	printf("L1d Hits: %llu\n", l1_d_hits);
+	printf("L1d Misses: %llu\n", l1_d_misses);
 	l1_d_total = l1_d_hits + l1_d_misses;
-	printf("L1d Total Requests: %lu\n", l1_d_total);
-	printf("L1d Kickouts: %lu\n", l1_d_kickouts);
-	printf("L1d Dirty Kickouts: %lu\n", l1_d_dirty_kick);
+	printf("L1d Total Requests: %llu\n", l1_d_total);
+	printf("L1d Kickouts: %llu\n", l1_d_kickouts);
+	printf("L1d Dirty Kickouts: %llu\n", l1_d_dirty_kick);
+	printf("L1d Transfers: %llu\n", l1_d_transfers);
+	printf("L1d VC Hits: %llu\n", l1_d_vc_hits);
 	printf("\n");
-	printf("L2 Hits: %lu\n", l2_d_hits);
-	printf("L2 Misses: %lu\n", l2_d_misses);
-	printf("L2 VC Hits: %lu\n", l2_d_vc_hits);
+	printf("L2 Hits: %llu\n", l2_d_hits);
+	printf("L2 Misses: %llu\n", l2_d_misses);
 	l2_d_total = l2_d_hits + l2_d_misses;
-	printf("L2 Total Requests: %lu\n", l2_d_total);
-	printf("L2 Kickouts: %lu\n", l2_kickouts);
-	printf("L2 Dirty Kickouts: %lu\n", l2_dirty_kick);
+	printf("L2 Total Requests: %llu\n", l2_d_total);
+	printf("L2 Kickouts: %llu\n", l2_kickouts);
+	printf("L2 Dirty Kickouts: %llu\n", l2_dirty_kick);
+	printf("L2 Transfers: %llu\n", l2_transfers);
+	printf("L2 VC Hits: %llu\n", l2_d_vc_hits);
+	printf("\n");
+	unsigned long l_total = L1_cost + L1_cost;
+	printf("L1 Cost: (Icache $%lu) + (Dcache $%lu) = $%lu\n", L1_cost, L1_cost, l_total);
+	printf("L2 Cost: $%lu\n",L2_cost);
+	printf("Mem cost: $%lu\n", mem_cost);
+	l_total = L1_cost + L1_cost + L2_cost + mem_cost;
+	printf("Total Cost: $%lu\n", l_total);
+	printf("\n");
 
 	
 	cache_destroy();
@@ -154,6 +233,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 	unsigned int byte_grab, last_ref, cont;
 	char l1_full = 1; //variables for making faster eviction decision later
 	char l1_victim_full = 1;
+	last_ref = 0;
 	for(i=0;i<bytesize;i++){
 		cont = 0;
 		t_addr = address+i;
@@ -161,6 +241,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 		tag = t_addr >> l1_tag_shift;
 		byte_grab = (t_addr & 4) >> 2;
 		if(i == 0 || byte_grab != last_ref){
+			m_exec += L1_hit_time;
 			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
 			vc_tag = t_addr >> l1_vc_shift;
@@ -169,6 +250,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
 					//adjust lru stack
 					l1_i_hits ++;
+					inst_cycles += L1_hit_time;
 					adjust_lru(ptr, &l1_inst_cache[index]);
 					cont = 1;
 					break; //cache hit
@@ -186,10 +268,11 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 
 					//overwrite with l1 evict data
 					swap_vc(l1_inst_cache[index].bottom, ptr, index);
-					l1_i_transfers++;
 					
 					l1_i_vc_hits++;
 					l1_i_misses++;
+					inst_cycles += L1_miss_time;
+					inst_cycles += L1_hit_time;
 					ptr = l1_inst_cache[index].bottom;
 					adjust_lru(ptr, &l1_inst_cache[index]);
 					cont = 1;
@@ -203,11 +286,14 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 	
 			//didn't find the data in l1, need to check l2 and write new data to l1 spot
 			//submit read request to l2
-			l2_read(t_addr);
+			l2_read(t_addr, &inst_cycles);
+			inst_cycles += L1_miss_time;
+			inst_cycles += l1_l2_tt;
 			l1_i_misses++;
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
 			unsigned long long int new_ve_tag;
+			l1_i_transfers++;
 			if(l1_full){
 				//need to evict an entry into victim
 				l1_e = l1_inst_cache[index].bottom;
@@ -246,6 +332,7 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 				(*l1_e).dirty = 0;
 				(*l1_e).valid = 1;
 			}
+			inst_cycles += L1_hit_time;
 		}
 		
 	}
@@ -259,12 +346,14 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 	unsigned int byte_grab, last_ref, cont;
 	char l1_full = 1; //variables for making faster eviction decision later
 	char l1_victim_full = 1;
+	last_ref = 0;
 	for(i=0;i<bytesize;i++){
 		cont = 0;
 		t_addr = address+i;
 		tag = (t_addr & l1_tag_mask) >> l1_tag_shift;
 		byte_grab = (t_addr & 4) >> 2;
 		if(i == 0 || byte_grab != last_ref){
+			m_exec += L1_hit_time;
 			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
 		
@@ -272,6 +361,7 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
 					//adjust lru stack
 					l1_d_hits ++;
+					read_cycles += L1_hit_time;
 					adjust_lru(ptr, &l1_data_cache[index]);
 					cont = 1;
 					break; //cache hit
@@ -293,6 +383,8 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 					
 					l1_d_vc_hits++;
 					l1_d_misses++;
+					read_cycles += L1_miss_time;
+					read_cycles += L1_hit_time;
 					ptr = l1_data_cache[index].bottom;
 					adjust_lru(ptr, &l1_data_cache[index]);
 					cont = 1;
@@ -310,6 +402,9 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 			l1_d_misses++;
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
+			l1_d_transfers++;
+			read_cycles += L1_miss_time;
+			read_cycles += l1_l2_tt;
 			unsigned long long int new_ve_tag;
 			if(l1_full){
 				//need to evict an entry into victim
@@ -323,8 +418,9 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 					l1_d_kickouts++;
 					if((*l1_ve).dirty){
 						unsigned long long int evict = (*l1_ve).tag << l1_vc_shift;
-						l2_write(evict);
+						l2_write(evict, &read_cycles);
 						l1_d_dirty_kick++;
+						read_cycles += l1_l2_tt;
 					}
 
 					//overwrite data
@@ -353,7 +449,8 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 				(*l1_e).dirty = 0;
 				(*l1_e).valid = 1;
 			}
-			l2_read(t_addr);
+			l2_read(t_addr, &read_cycles);
+			read_cycles += L1_hit_time;
 		}
 		
 	}
@@ -367,12 +464,14 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 	unsigned int byte_grab, last_ref, cont;
 	char l1_full = 1; //variables for making faster eviction decision later
 	char l1_victim_full = 1;
+	last_ref = 0;	
 	for(i=0;i<bytesize;i++){
 		cont = 0;
 		t_addr = address+i;
 		tag = (t_addr & l1_tag_mask) >> l1_tag_shift;
 		byte_grab = (t_addr & 4) >> 2;
 		if(i == 0 || byte_grab != last_ref){
+			m_exec += L1_hit_time;
 			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
 		
@@ -380,6 +479,7 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 				if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
 					//adjust lru stack
 					l1_d_hits ++;
+					write_cycles += L1_hit_time;
 					adjust_lru(ptr, &l1_data_cache[index]);
 					(*ptr).dirty = 1;
 					cont = 1;
@@ -402,7 +502,8 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 					
 					l1_d_vc_hits++;
 					l1_d_misses++;
-					l1_d_transfers++;
+					write_cycles += L1_miss_time;
+					write_cycles += L1_hit_time;
 					ptr = l1_data_cache[index].bottom;
 					adjust_lru(ptr, &l1_data_cache[index]);
 					(*ptr).dirty = 1;
@@ -422,6 +523,9 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 			struct c_ent* l1_e;
 			struct c_ent* l1_ve;
 			unsigned long long int new_ve_tag;
+			l1_d_transfers++;
+			write_cycles += L1_miss_time;
+			write_cycles += l1_l2_tt;
 			if(l1_full){
 				//need to evict an entry into victim
 				l1_e = l1_data_cache[index].bottom;
@@ -434,8 +538,9 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 					l1_d_kickouts++;
 					if((*l1_ve).dirty){
 						unsigned long long int evict = (*l1_ve).tag << l1_vc_shift;
-						l2_write(evict);
+						l2_write(evict, &write_cycles);
 						l1_d_dirty_kick++;
+						write_cycles += l1_l2_tt;
 					}
 
 					//overwrite data
@@ -465,14 +570,15 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 				(*l1_e).valid = 1;
 			}
 			
-			l2_read(t_addr);
+			l2_read(t_addr, &write_cycles);
+			write_cycles += L1_hit_time;
 
 		}
 		
 	}
 }
 
-void l2_read(unsigned long long int address){
+void l2_read(unsigned long long int address, unsigned long long int* hitter){
 	struct c_ent* ptr;
 	unsigned long long int t_addr, tag, index, vc_tag;
 	char l2_full = 1; //variables for making faster eviction decision later
@@ -485,6 +591,7 @@ void l2_read(unsigned long long int address){
 		if((*ptr).valid == 1 && ((*ptr).tag ^ tag) == 0){
 			//adjust lru stack
 			l2_d_hits ++;
+			(*hitter) += L2_hit_time;
 			adjust_lru(ptr, &l2_cache[index]);
 			return; //cache hit
 		}
@@ -504,6 +611,8 @@ void l2_read(unsigned long long int address){
 			
 			l2_d_vc_hits++;
 			l2_d_misses++;
+			(*hitter) += L2_miss_time;
+			(*hitter) += L2_hit_time;
 			ptr = l2_cache[index].bottom;
 			adjust_lru(ptr, &l2_cache[index]);
 			return;
@@ -519,6 +628,9 @@ void l2_read(unsigned long long int address){
 	struct c_ent* l2_e;
 	struct c_ent* l2_ve;
 	unsigned long long int new_ve_tag;
+	l2_transfers++;
+	(*hitter) += L2_miss_time;
+	(*hitter) += l2_m_tt;
 	if(l2_full){
 		//need to evict an entry into victim
 		l2_e = l2_cache[index].bottom;
@@ -533,6 +645,7 @@ void l2_read(unsigned long long int address){
 				//unsigned long long int evict = (*l2_ve).tag << l2_vc_shift;
 				//write to memory
 				l2_dirty_kick++;
+				(*hitter) += l2_m_tt;//time to write to memory
 			}
 
 			//overwrite data
@@ -561,9 +674,10 @@ void l2_read(unsigned long long int address){
 		(*l2_e).dirty = 0;
 		(*l2_e).valid = 1;
 	}
+	(*hitter) += L2_hit_time;
 
 }
-void l2_write(unsigned long long int address){
+void l2_write(unsigned long long int address, unsigned long long int* hitter){
 	struct c_ent* ptr;
 	unsigned long long int t_addr, tag, index, vc_tag;
 	char l2_full = 1; //variables for making faster eviction decision later
@@ -577,6 +691,7 @@ void l2_write(unsigned long long int address){
 			//adjust lru stack
 			l2_d_hits ++;
 			adjust_lru(ptr, &l2_cache[index]);
+			(*hitter) += L2_hit_time;
 			(*ptr).dirty = 1;
 			return; //cache hit
 		}
@@ -596,6 +711,8 @@ void l2_write(unsigned long long int address){
 			
 			l2_d_vc_hits++;
 			l2_d_misses++;
+			(*hitter) += L2_miss_time;
+			(*hitter) += L2_hit_time;
 			ptr = l2_cache[index].bottom;
 			adjust_lru(ptr, &l2_cache[index]);
 			(*ptr).dirty = 1;
@@ -612,6 +729,9 @@ void l2_write(unsigned long long int address){
 	struct c_ent* l2_e;
 	struct c_ent* l2_ve;
 	unsigned long long int new_ve_tag;
+	l2_transfers++;
+	(*hitter) += L2_miss_time;
+	(*hitter) += l2_m_tt;
 	if(l2_full){
 		//need to evict an entry into victim
 		l2_e = l2_cache[index].bottom;
@@ -626,6 +746,7 @@ void l2_write(unsigned long long int address){
 				//unsigned long long int evict = (*l2_ve).tag << l2_vc_shift;
 				//write to memory
 				l2_dirty_kick++;
+				(*hitter) += l2_m_tt;
 			}
 
 			//overwrite data
@@ -654,6 +775,7 @@ void l2_write(unsigned long long int address){
 		(*l2_e).dirty = 1;
 		(*l2_e).valid = 1;
 	}
+	(*hitter) += L2_hit_time;
 }
 
 void adjust_lru(struct c_ent* ptr, struct c_head* head){
@@ -698,6 +820,7 @@ void init(int argc, char* args[]){
 	unsigned long columns;
 	struct c_ent* ptr;
 	struct c_ent* new;
+	unsigned long mem_mod = 1;
 	for(i=1;i<argc;i+=2){
 		unsigned long value = strtoul(args[i+1], NULL, 10);
 		if(value < 0){
@@ -716,6 +839,10 @@ void init(int argc, char* args[]){
 		else if(!strcmp(args[i], "l2_miss"))L2_miss_time = value;
 		else if(!strcmp(args[i], "l2_t"))L2_transfer_time = value;
 		else if(!strcmp(args[i], "l1_bus"))L2_bus_width = value;
+		else if(!strcmp(args[i], "m_bw")){
+			mem_chunksize *= value;
+			mem_mod = value;
+		}
 		else{
 			printf("Unrecognized parameter: %s\n", args[i]);
 			exit(1);
@@ -732,6 +859,25 @@ void init(int argc, char* args[]){
 	l1_vc_shift = 0;
 	l2_vc_shift = 0;
 	temp = L1_block_size;
+	unsigned long blks = L1_cache_size >> 12;
+	L1_cost += (blks*100);
+	unsigned long t = L1_assoc;
+	while(t > 1){
+		L1_cost += (blks*100);
+		t >>= 1;
+	}
+	blks = L2_cache_size >> 14;
+	L2_cost += (blks*50);
+	t = L2_assoc;
+	while(t > 1){
+		L2_cost += (blks*50);
+		t >>= 1;
+	}
+	t = mem_mod;
+	while(t > 1){
+		mem_cost += 100;
+		t >>= 1;
+	}
 
 	rows = L1_cache_size / (L1_block_size*L1_assoc);
 	l1_cache_rows = rows;

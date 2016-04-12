@@ -1,0 +1,41 @@
+2016:04:09 14:47:23
+2016:04:09 16:57:51
+Reads: 3299993836	[ 19.1% ]
+Writes: 1258951875	[ 7.3% ]
+Inst. : 12741056222	[ 73.6% ]
+Total: 17300001933
+
+Read Cycles: 25430426927	[ 23.9% ]
+Write Cycles: 13905815484	[ 13.1% ]
+Inst. Cycles: 66999004648	[ 63.0% ]
+Total Cycles: 106335247059
+
+CPI: 8.3
+Ideal Exec: 30041058155
+Ideal CPI: 2.4
+Misaligned Exec: 40161444400
+Misaligned CPI: 3.2
+
+L1i Hits: 21310647762
+L1i Misses: 404909342
+L1i Total Requests: 21715557104
+L1i Kickouts: 373687626
+L1i Dirty Kickouts: 0
+L1i Transfers: 373687890
+L1i VC Hits: 31221452
+
+L1d Hits: 5381411277
+L1d Misses: 323419797
+L1d Total Requests: 5704831074
+L1d Kickouts: 227161103
+L1d Dirty Kickouts: 99092298
+L1d Transfers: 227161367
+L1d VC Hits: 96258430
+
+L2 Hits: 485941759
+L2 Misses: 213999796
+L2 Total Requests: 699941555
+L2 Kickouts: 198648199
+L2 Dirty Kickouts: 44168570
+L2 Transfers: 198648719
+L2 VC Hits: 15351077
