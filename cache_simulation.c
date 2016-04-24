@@ -121,7 +121,6 @@ int main(int argc, char* argv[]){
 	time(&timer);
 	tm_info = localtime(&timer);
 	strftime(buf1, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-	puts(buf1);
 	while(scanf("%c %Lx %d\n", &op, &address, &bytesize) == 3){
 		switch(op){
 			case 'I':
@@ -149,7 +148,6 @@ int main(int argc, char* argv[]){
 	time(&timer);
 	tm_info = localtime(&timer);
 	strftime(buf2, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-	puts(buf2);
 
 	/*struct c_ent* ptr;
 	int i;
@@ -165,61 +163,82 @@ int main(int argc, char* argv[]){
 		printf("%Lx ",addr);
 	}
 	printf("\n");*/
-	unsigned long long int total = reads+writes+instRefs;
-	printf("Reads: %llu\t[ %.1f%% ]\n", reads, (((double)reads)/((double)total))*100);
-	printf("Writes: %llu\t[ %.1f%% ]\n", writes, (((double)writes)/((double)total))*100);
-	printf("Inst. : %llu\t[ %.1f%% ]\n", instRefs, (((double)instRefs)/((double)total))*100);
-	printf("Total: %llu\n", total);
-	printf("\n");	
+	printf("Memory system:\n");
+	printf("\tDcache Size = %lu : ways = %lu : block size = %lu\n", L1_cache_size, L1_assoc, L1_block_size);
+	printf("\tIcache Size = %lu : ways = %lu : block size = %lu\n", L1_cache_size, L1_assoc, L1_block_size);
+	printf("\tL2-cache size = %lu : ways = %lu : block size = %lu\n", L2_cache_size, L2_assoc, L2_block_size);
+	printf("\tMemory Ready Time = %lu : chunksize = %lu : chunktime = %lu\n", mem_ready, mem_chunksize, mem_chunktime);
+	printf("\n");
+	
 	total_cycles = read_cycles + write_cycles + inst_cycles;
-	printf("Read Cycles: %llu\t[ %.1f%% ]\n", read_cycles, (((double)read_cycles)/((double)total_cycles))*100);
-	printf("Write Cycles: %llu\t[ %.1f%% ]\n", write_cycles, (((double)write_cycles)/((double)total_cycles))*100);
-	printf("Inst. Cycles: %llu\t[ %.1f%% ]\n", inst_cycles, (((double)inst_cycles)/((double)total_cycles))*100);
-	printf("Total Cycles: %llu\n", total_cycles);
+	unsigned long long int total = reads+writes+instRefs;
+	printf("Execute time = %llu; Total refs = %llu\n", total_cycles, total);
+	total = reads+writes;
+	printf("Inst refs = %llu; Data refs = %llu\n", instRefs, total);
+	printf("\n");
+	total = reads+writes+instRefs;	
+	printf("Number of reference types: [Percentage]\n");
+	printf("\tReads: %llu\t[ %.1f%% ]\n", reads, (((double)reads)/((double)total))*100);
+	printf("\tWrites: %llu\t[ %.1f%% ]\n", writes, (((double)writes)/((double)total))*100);
+	printf("\tInst.: %llu\t[ %.1f%% ]\n", instRefs, (((double)instRefs)/((double)total))*100);
+	printf("\tTotal: %llu\n", total);
+	printf("\n");
+
+	printf("Total cycles for activities: [Percentage]\n");	
+	printf("\tRead Cycles: %llu\t[ %.1f%% ]\n", read_cycles, (((double)read_cycles)/((double)total_cycles))*100);
+	printf("\tWrite Cycles: %llu\t[ %.1f%% ]\n", write_cycles, (((double)write_cycles)/((double)total_cycles))*100);
+	printf("\tInst. Cycles: %llu\t[ %.1f%% ]\n", inst_cycles, (((double)inst_cycles)/((double)total_cycles))*100);
+	printf("\tTotal Cycles: %llu\n", total_cycles);
 	printf("\n");
 	double raw_cpi = ((double)total_cycles) / ((double)instRefs);
 	double ideal_cpi = ((double)ideal_exec) / ((double)instRefs);
 	double align_cpi = ((double)m_exec) / ((double)instRefs);
 	printf("CPI: %.1f\n", raw_cpi);
-	printf("Ideal Exec: %llu\n", ideal_exec);
-	printf("Ideal CPI: %.1f\n", ideal_cpi);
-	printf("Misaligned Exec: %llu\n", m_exec);
-	printf("Misaligned CPI: %.1f\n", align_cpi);
+	printf("Ideal: Exec. Time = %llu; CPI = %.1f\n", ideal_exec, ideal_cpi);
+	printf("Ideal mis-aligned: Exec. Time = %llu; CPI: %.1f\n",m_exec, align_cpi);
 	printf("\n");
-	printf("L1i Hits: %llu\n", l1_i_hits);
-	printf("L1i Misses: %llu\n", l1_i_misses);
+	
+	printf("Memory Level: L1i\n");
+	printf("\tHit Count = %llu\tMiss Count = %llu\n", l1_i_hits, l1_i_misses);
 	l1_i_total = l1_i_hits + l1_i_misses;
-	printf("L1i Total Requests: %llu\n", l1_i_total);
-	printf("L1i Kickouts: %llu\n", l1_i_kickouts);
-	printf("L1i Dirty Kickouts: %llu\n", l1_i_dirty_kick);
-	printf("L1i Transfers: %llu\n", l1_i_transfers);
-	printf("L1i VC Hits: %llu\n", l1_i_vc_hits);
+	printf("\tTotal Requests: %llu\n", l1_i_total);
+	printf("\tHit Rate = %0.1f%%\tMiss Rate = %0.1f%%\n", (((double)l1_i_hits)/((double)l1_i_total))*100, (((double)l1_i_misses)/((double)l1_i_total))*100);
+	printf("\tKickouts = %llu; Dirty kickouts = %llu; Transfers = %llu\n", l1_i_kickouts, l1_i_dirty_kick, l1_i_transfers);
+	printf("\tVC Hit count: %llu\n", l1_i_vc_hits);
 	printf("\n");
-	printf("L1d Hits: %llu\n", l1_d_hits);
-	printf("L1d Misses: %llu\n", l1_d_misses);
+	printf("Memory Level: L1d\n");
+	printf("\tHit Count = %llu\tMiss Count = %llu\n", l1_d_hits, l1_d_misses);
 	l1_d_total = l1_d_hits + l1_d_misses;
-	printf("L1d Total Requests: %llu\n", l1_d_total);
-	printf("L1d Kickouts: %llu\n", l1_d_kickouts);
-	printf("L1d Dirty Kickouts: %llu\n", l1_d_dirty_kick);
-	printf("L1d Transfers: %llu\n", l1_d_transfers);
-	printf("L1d VC Hits: %llu\n", l1_d_vc_hits);
+	printf("\tTotal Requests: %llu\n", l1_d_total);
+	printf("\tHit Rate = %0.1f%%\tMiss Rate = %0.1f%%\n", (((double)l1_d_hits)/((double)l1_d_total))*100, (((double)l1_d_misses)/((double)l1_d_total))*100);
+	printf("\tKickouts = %llu; Dirty kickouts = %llu; Transfers = %llu\n", l1_d_kickouts, l1_d_dirty_kick, l1_d_transfers);
+	printf("\tVC Hit count: %llu\n", l1_d_vc_hits);
 	printf("\n");
-	printf("L2 Hits: %llu\n", l2_d_hits);
-	printf("L2 Misses: %llu\n", l2_d_misses);
+	printf("Memory Level: L2\n");
+	printf("\tHit Count = %llu\tMiss Count = %llu\n", l2_d_hits, l2_d_misses);
 	l2_d_total = l2_d_hits + l2_d_misses;
-	printf("L2 Total Requests: %llu\n", l2_d_total);
-	printf("L2 Kickouts: %llu\n", l2_kickouts);
-	printf("L2 Dirty Kickouts: %llu\n", l2_dirty_kick);
-	printf("L2 Transfers: %llu\n", l2_transfers);
-	printf("L2 VC Hits: %llu\n", l2_d_vc_hits);
+	printf("\tTotal Requests: %llu\n", l2_d_total);
+	printf("\tHit Rate = %0.1f%%\tMiss Rate = %0.1f%%\n", (((double)l2_d_hits)/((double)l2_d_total))*100, (((double)l2_d_misses)/((double)l2_d_total))*100);
+	printf("\tKickouts = %llu; Dirty kickouts = %llu; Transfers = %llu\n", l2_kickouts, l2_dirty_kick, l2_transfers);
+	printf("\tVC Hit count: %llu\n", l2_d_vc_hits);
 	printf("\n");
 	unsigned long l_total = L1_cost + L1_cost;
-	printf("L1 Cost: (Icache $%lu) + (Dcache $%lu) = $%lu\n", L1_cost, L1_cost, l_total);
-	printf("L2 Cost: $%lu\n",L2_cost);
-	printf("Mem cost: $%lu\n", mem_cost);
+	printf("L1 cache cost: (Icache $%lu) + (Dcache $%lu) = $%lu\n", L1_cost, L1_cost, l_total);
 	l_total = L1_cost + L1_cost + L2_cost + mem_cost;
-	printf("Total Cost: $%lu\n", l_total);
+	printf("L2 cache cost: $%lu; Memory cost = %lu  Total cost = %lu\n",L2_cost, mem_cost, l_total);
 	printf("\n");
+	printf("\n");
+
+	printf("%lu, %lu, %lu, ", L1_cache_size, L1_assoc, L1_block_size);
+	printf("%lu, %lu, %lu, ", L2_cache_size, L2_assoc, L2_block_size);
+	printf("%lu, %lu, %lu, ", mem_ready, mem_chunksize, mem_chunktime);
+	printf("%llu, %llu, %llu, ", reads, writes, instRefs);
+	printf("%llu, %llu, %llu, ", read_cycles, write_cycles, inst_cycles);
+	printf("%.1f, %.1f, %.1f, ", raw_cpi, ideal_cpi, align_cpi);
+	printf("%llu, %llu, %llu, %llu, %llu, %llu, ",l1_i_hits,l1_i_misses,l1_i_total,l1_i_kickouts,l1_i_dirty_kick,l1_i_vc_hits);
+	printf("%llu, %llu, %llu, %llu, %llu, %llu, ",l1_d_hits,l1_d_misses,l1_d_total,l1_d_kickouts,l1_d_dirty_kick,l1_d_vc_hits);
+	printf("%llu, %llu, %llu, %llu, %llu, %llu, ",l2_d_hits,l2_d_misses,l2_d_total,l2_kickouts,l2_dirty_kick,l2_d_vc_hits);
+	printf("%lu, %lu, %lu\n", L1_cost, L2_cost, mem_cost);
 
 	
 	cache_destroy();
@@ -241,6 +260,8 @@ void l1_read_instruction(unsigned long long int address, unsigned int bytesize){
 		tag = t_addr >> l1_tag_shift;
 		byte_grab = (t_addr & 4) >> 2;
 		if(i == 0 || byte_grab != last_ref){
+			l1_full = 1;
+			l1_victim_full = 1;
 			m_exec += L1_hit_time;
 			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
@@ -353,6 +374,8 @@ void l1_read_data(unsigned long long int address, unsigned int bytesize){
 		tag = (t_addr & l1_tag_mask) >> l1_tag_shift;
 		byte_grab = (t_addr & 4) >> 2;
 		if(i == 0 || byte_grab != last_ref){
+			l1_full = 1;
+			l1_victim_full = 1;
 			m_exec += L1_hit_time;
 			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
@@ -471,6 +494,8 @@ void l1_write_data(unsigned long long int address, unsigned int bytesize){
 		tag = (t_addr & l1_tag_mask) >> l1_tag_shift;
 		byte_grab = (t_addr & 4) >> 2;
 		if(i == 0 || byte_grab != last_ref){
+			l1_full = 1;
+			l1_victim_full = 1;
 			m_exec += L1_hit_time;
 			last_ref = byte_grab;
 			index = (t_addr & l1_index_mask) >> l1_index_shift;
